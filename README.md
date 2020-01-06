@@ -12,4 +12,4 @@ plots folder contain plots generated of results
 
 MovieLens Report.Rmd contains R markdown report of final results.
 
-MovieLens Report.md is a version of the markdown report that is viewable on github.
+MovieLens Report.pdf is a version of the report showing only the output and not the code.
