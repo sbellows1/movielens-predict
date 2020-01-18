@@ -1,18 +1,36 @@
 library(dplyr)
 library(caret)
 
+##Run scripts to download data and split out validation set.
+source('download-data.R')
+source('train-validation-split.R')
+
 load(file = 'rda/train.rda')
 
 #Creating datasets
 set.seed(1, sample.kind = 'Rounding')
-test_index <- createDataPartition(y = train$rating, times = 1, p = 0.2, list = FALSE)
-test0 <- train[test_index,]
-train <- train[-test_index,]
 
-##Making sure only users and movies with data in the training set appear in the test set.
-test <- test0 %>% semi_join(train, by = 'userId') %>% semi_join(train, by = 'movieId')
-removed <- anti_join(test0, test)
-train <- rbind(train, removed)
+#Much of the cleaning is done by the traintest function further down.
+##Sanity check data
+cat(any(train$rating > 5))
+cat(any(train$rating < 0))
+
+##EDA
+train %>% summarize(mean = mean(rating), median = median(rating), sd = sd(rating), min = min(rating), max = max(rating))
+hist(train$rating, breaks = 10)
+train %>% group_by(userId) %>% summarize(mean = mean(rating)) %>% .$mean %>% hist(breaks = 20)
+train %>% group_by(movieId) %>% summarize(mean = mean(rating))%>% .$mean %>% hist(breaks = 20)
+
+#There is variability amongst users and amongst movies although more variability amongst movies. This variability
+#must be accounted for by the model.
+#If I were planning to use genre as part of the model I would analyze by genre as well.
+
+##traintest function loaded in from train-validation-split
+datasets <- traintest(train)
+train <- datasets[[1]]
+test <- datasets[[2]]
+
+
 
 #Create default prediction
 grandmean <- mean(train$rating)
@@ -173,10 +191,11 @@ model6 <- recommender(resid_df, resid_test)
 ##FunkSVD on residuals model
 ###################################################################################################
 
-train_svd <- df_match(train, test)
-train_svd <- train_svd %>% select(userId, movieId, resid)
-train_svd <- make_matrix_resid(train_svd)
+train_svd <- train %>% select(userId, movieId, resid)
+train_svd <- df_match(train_svd, test)
 test_svd <- test %>% select(userId, movieId, resid)
+test_svd <- df_match(test_svd, train_svd)
+train_svd <- make_matrix_resid(train_svd)
 test_svd <- make_matrix_resid(test_svd)
 
 ##Function to fit funkSVD model
@@ -185,7 +204,7 @@ makesvd <- function(train, test, k = 10, gamma = .015, lambda = .001){
   fsvd <- funkSVD(train, k = k, gamma = gamma, lambda = lambda)
   r <- tcrossprod(fsvd$U, fsvd$V)
   acctrain <- RMSE(train[!is.na(train)], r[!is.na(train)])
-  p <- predict(fsvd, test, verbose = TRUE)
+  p <- predict(fsvd, test)
   acctest <- RMSE(test[!is.na(test)], p[!is.na(test)])
   return(c(acctrain, acctest))
 }
@@ -200,8 +219,9 @@ model7 <- makesvd(train_svd, test_svd, 10, .015, .001)
 
 train_svd_rat <- df_match(train, test)
 train_svd_rat <- train_svd_rat %>% select(userId, movieId, rating)
-train_svd_rat <- make_matrix_rating(train_svd_rat)
 test_svd_rat <- test %>% select(userId, movieId, rating)
+test_svd_rat <- df_match(test_svd_rat, train_svd_rat)
+train_svd_rat <- make_matrix_rating(train_svd_rat)
 test_svd_rat <- make_matrix_rating(test_svd_rat)
 
 cm <- colMeans(train_svd_rat, na.rm = TRUE)
